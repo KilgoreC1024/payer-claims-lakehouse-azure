@@ -206,3 +206,47 @@ def test_quarantine_over_budget_fails_the_build(data_dir: Path):
     assert run(data_dir, "load") == 0
     assert run(data_dir, "transform") == 3
     assert scalar(data_dir, "select count(*) from silver.silver_quarantine") == 5
+
+
+def test_partial_year_enrollment_and_death_shape_member_months(data_dir: Path):
+    """The published files never have these, so they are injected: April enrollment, February death."""
+    folder = data_dir / "raw" / "cms_synthetic"
+
+    def edit(year: str, **values: str) -> str:
+        path = folder / f"beneficiary_{year}.csv"
+        lines = path.read_text(encoding="utf-8").splitlines()
+        header = lines[0].split("|")
+        later = {
+            line.split("|")[0]
+            for line in (folder / "beneficiary_2025.csv").read_text(encoding="utf-8").splitlines()[1:]
+        }
+        index = next(i for i, line in enumerate(lines[1:], 1) if line.split("|")[0] in later)
+        row = lines[index].split("|")
+        for column, value in values.items():
+            row[header.index(column)] = value
+        lines[index] = "|".join(row)
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
+        return row[0]
+
+    # Enrolled from April 2019: no entitlement January-March, so CMS would report 9 Part A months.
+    bene = edit(
+        "2019",
+        MDCR_ENTLMT_BUYIN_IND_01="0",
+        MDCR_ENTLMT_BUYIN_IND_02="0",
+        MDCR_ENTLMT_BUYIN_IND_03="0",
+        BENE_HI_CVRAGE_TOT_MONS="9",
+        BENE_SMI_CVRAGE_TOT_MONS="9",
+    )
+    # Died 2025-02-15: alive on February 1, not on March 1, so 2 months even though the flag says 3.
+    assert (
+        edit("2025", BENE_DEATH_DT="15-Feb-2025", BENE_HI_CVRAGE_TOT_MONS="2", BENE_SMI_CVRAGE_TOT_MONS="2")
+        == bene
+    )
+
+    assert run(data_dir, "run", "--profile", "full") == 0  # Part A reconciliation still passes
+    months = query(
+        data_dir,
+        f"select year, count(*), min(month) from silver.silver_member_months where bene_id = '{bene}' "
+        "and year in (2019, 2025) group by year order by year",
+    )
+    assert months == [(2019, 9, 4), (2025, 2, 1)]
