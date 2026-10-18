@@ -84,6 +84,11 @@ class Paths:
     def duckdb_path(self) -> Path:
         return self.warehouse / "lakehouse.duckdb"
 
+    @property
+    def site(self) -> Path:
+        """The static dashboard generated from the warehouse (`pcl dashboard`), published to GitHub Pages."""
+        return self.data_root / "site"
+
     def ensure(self) -> None:
         for path in (self.raw, self.landing, self.bronze, self.warehouse):
             path.mkdir(parents=True, exist_ok=True)

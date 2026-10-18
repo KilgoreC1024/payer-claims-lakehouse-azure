@@ -5,6 +5,7 @@ pcl replay --profile fixture      cut raw files into yearly arrivals under <data
 pcl load [--through 2019]         contract-check and load pending arrivals into bronze, oldest first
 pcl transform                     build the silver models with dbt and run their tests
 pcl run --profile fixture         replay + load + transform, end to end
+pcl dashboard                     write the static dashboard to <data-dir>/site from the warehouse
 pcl status                        show the load log
 """
 
@@ -97,6 +98,17 @@ def cmd_run(paths: Paths, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dashboard(paths: Paths, args: argparse.Namespace) -> int:
+    from ingest.dashboard import build as build_dashboard
+
+    if not paths.duckdb_path.is_file():
+        print(f"no warehouse at {paths.duckdb_path}: run `pcl run` first", file=sys.stderr)
+        return 1
+    out = build_dashboard(paths, Path(args.out) if args.out else None)
+    print(f"dashboard: {out}")
+    return 0
+
+
 def cmd_status(paths: Paths, args: argparse.Namespace) -> int:
     log = read_load_log(paths)
     if not log:
@@ -147,6 +159,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--profile", choices=["fixture", "full"], default="full")
     p.add_argument("--through", help="load member and claim arrivals up to this year (simulates time)")
     p.set_defaults(func=cmd_run, source=None, arrival=None)
+
+    p = sub.add_parser("dashboard", help="write the static dashboard from the warehouse")
+    p.add_argument("--out", help="output directory (default: <data-dir>/site)")
+    p.set_defaults(func=cmd_dashboard)
 
     p = sub.add_parser("status", help="show what has been loaded")
     p.set_defaults(func=cmd_status)

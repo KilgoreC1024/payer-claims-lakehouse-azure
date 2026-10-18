@@ -6,6 +6,8 @@ real feed breaks, and runs the same CLI a person would. dbt runs as a subprocess
 
 from __future__ import annotations
 
+import json
+import re
 import shutil
 from decimal import Decimal
 from pathlib import Path
@@ -193,6 +195,30 @@ def test_gold_readmissions(run_dir: Path):
         run_dir,
         "select sum(stays), sum(index_stays), sum(readmissions) from gold.gold_readmission_30d_by_year",
     ) == [(39, 37, 2)]
+
+
+def test_dashboard_embeds_the_marts_and_no_local_paths(run_dir: Path, tmp_path: Path):
+    site = tmp_path / "site"
+    assert run(run_dir, "dashboard", "--out", str(site)) == 0
+    html = (site / "index.html").read_text(encoding="utf-8")
+    raw = re.search(r'<script type="application/json" id="pcl-data">(.*?)</script>', html, re.S).group(1)
+    data = json.loads(raw)
+
+    assert [y["year"] for y in data["years"]] == list(range(2015, 2024))
+    assert data["totals"]["stays"] == 39
+    assert data["totals"]["denominator_member_months"] == 2116
+    assert (
+        sum(e["stays"] for e in data["exclusions"]) + sum(y["index_stays"] or 0 for y in data["years"]) == 39
+    )
+    assert {(g["field"], g["role"]) for g in data["conformance"]} >= {
+        ("diagnosis", "principal"),
+        ("hcpcs", "revenue_line"),
+    }
+    assert all(a["contract_status"] in ("pass", "warn") for a in data["health"]["arrivals"])
+    assert data["health"]["dbt"]["counts"]
+    # The page is published, so nothing may point at the machine that built it.
+    for form in (str(run_dir), run_dir.as_posix(), json.dumps(str(run_dir))[1:-1]):
+        assert form not in html
 
 
 def test_arrivals_replay_the_passage_of_time(data_dir: Path):

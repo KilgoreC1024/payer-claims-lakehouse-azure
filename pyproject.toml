@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "payer-claims-lakehouse"
 version = "0.1.0"
-description = "Member-level payer claims lakehouse on CMS synthetic Medicare data: contract-gated bronze ingest and dbt silver models on DuckDB."
+description = "Member-level payer claims lakehouse on CMS synthetic Medicare data: contract-gated bronze ingest, dbt silver and gold marts on DuckDB, and a static dashboard."
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Christian Kilgore" }]
@@ -26,6 +26,9 @@ pcl = "ingest.cli:main"
 
 [tool.setuptools]
 packages = ["ingest"]
+
+[tool.setuptools.package-data]
+ingest = ["templates/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
