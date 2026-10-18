@@ -1,0 +1,55 @@
+# Raw inputs and where they come from.
+#
+# `pcl fetch` downloads every file listed here into <data-dir>/raw/ (opt-in; the only network step).
+# `pcl run --profile fixture` skips the download and copies tests/fixtures/cms_synthetic/ instead, which
+# holds a small subset of the same files in the same published formats.
+#
+# Each raw file is then replayed into yearly *arrivals* (landing/) and loaded into bronze one arrival at
+# a time, so the pipeline sees data the way a payer receives it: one year after another, never all at once.
+
+cms_synthetic:
+  title: CMS Synthetic Medicare Enrollment, Fee-for-Service Claims, and Prescription Drug Event
+  collection: https://data.cms.gov/collection/synthetic-medicare-enrollment-fee-for-service-claims-and-prescription-drug-event
+  user_guide: https://data.cms.gov/sites/default/files/2023-05/d51e1218-68c3-4c7c-9598-0b81f22fe903/User%20Guide%20-%20CMS%20Synthetic%20RIF%20Files%20May%202023_AM508_v2.pdf
+  base_url: https://data.cms.gov/sites/default/files/2023-04
+  files:
+    beneficiary_2015.csv: d5da04d5-61c8-4174-be11-02d0f58217e7/beneficiary_2015.csv
+    beneficiary_2016.csv: c401e869-f85e-4c57-a9ae-fa7b982593d6/beneficiary_2016.csv
+    beneficiary_2017.csv: b70edfc5-cd50-4983-9837-b5ece38d400f/beneficiary_2017.csv
+    beneficiary_2018.csv: bf7aac0e-3ba3-4e7e-9463-073316a17d8a/beneficiary_2018.csv
+    beneficiary_2019.csv: 7f65254b-174e-4460-aa49-6759ea8397af/beneficiary_2019.csv
+    beneficiary_2020.csv: 74b86018-5148-45bb-87f7-c551eda070d8/beneficiary_2020.csv
+    beneficiary_2021.csv: 98832739-88bd-4243-87fe-ee12b8542baf/beneficiary_2021.csv
+    beneficiary_2022.csv: 831cfb41-3a7a-4ce0-b02f-04d27df56b31/beneficiary_2022.csv
+    beneficiary_2023.csv: 18fe0f5d-4126-432f-b12b-2569db9bdefa/beneficiary_2023.csv
+    beneficiary_2024.csv: 402c0430-aab0-47f9-ab51-4274e30d2f79/beneficiary_2024.csv
+    beneficiary_2025.csv: 428fe76b-964d-48ca-b310-86f246fac829/beneficiary_2025.csv
+    inpatient.csv: 67157de9-d962-4af0-bf0e-3578b3afec58/inpatient.csv
+
+# ICD-10-CM and ICD-10-PCS "order files", one per federal fiscal year (FY2016 = discharges from
+# 2015-10-01 through 2016-09-30). Claims are validated against the code set of their discharge FY.
+# Only the code and its billable/header flag are ingested; code descriptions are not needed and are
+# deliberately not stored.
+reference:
+  icd10cm:
+    member_pattern: "icd10cm_order_(\\d{4})\\.txt$"
+    files:
+      2016: https://www.cms.gov/medicare/coding/icd10/downloads/2016-code-descriptions-in-tabular-order.zip
+      2017: https://www.cms.gov/medicare/coding/icd10/downloads/2017-icd10-code-descriptions.zip
+      2018: https://www.cms.gov/medicare/coding/icd10/downloads/2018-icd-10-code-descriptions.zip
+      2019: https://www.cms.gov/medicare/coding/icd10/downloads/2019-icd-10-cm-code-descriptions.zip
+      2020: https://www.cms.gov/medicare/coding/icd10/downloads/2020-icd-10-cm-codes.zip
+      2021: https://www.cms.gov/files/zip/2021-code-descriptions-tabular-order.zip
+      2022: https://www.cms.gov/files/zip/2022-code-descriptions-tabular-order.zip
+      2023: https://www.cms.gov/files/zip/2023-code-descriptions-tabular-order.zip
+  icd10pcs:
+    member_pattern: "icd10pcs_order_(\\d{4})\\.txt$"
+    files:
+      2016: https://www.cms.gov/medicare/coding/icd10/downloads/2016-pcs-long-abbrev-titles.zip
+      2017: https://www.cms.gov/medicare/coding/icd10/downloads/2017-pcs-long-abbrev-titles.zip
+      2018: https://www.cms.gov/medicare/coding/icd10/downloads/2018-icd-10-pcs-order-file.zip
+      2019: https://www.cms.gov/medicare/coding/icd10/downloads/2019-icd-10-pcs-order-file.zip
+      2020: https://www.cms.gov/medicare/coding/icd10/downloads/2020-icd-10-pcs-order.zip
+      2021: https://www.cms.gov/files/zip/2021-icd-10-pcs-order-file-long-and-abbreviated-titles.zip
+      2022: https://www.cms.gov/files/zip/2022-icd-10-pcs-order-file-long-and-abbreviated-titles.zip
+      2023: https://www.cms.gov/files/zip/2023-icd-10-pcs-order-file-long-and-abbreviated-titles.zip

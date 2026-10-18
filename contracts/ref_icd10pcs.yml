@@ -1,0 +1,23 @@
+# Data contract: CMS ICD-10-PCS order file (fixed width), one row per code, one file per fiscal year.
+#
+# Same layout as the ICD-10-CM order file. Valid PCS codes are exactly seven characters from the
+# alphabet 0-9 and A-Z without I and O; three-character rows are table headers (flag 0).
+
+contract_version: 1
+source: ref_icd10pcs
+owner: data-platform
+grain: [code]
+
+format:
+  layout: cms_order_file
+
+policy:
+  unknown_columns: fail
+  row_error_budget: 0
+  duplicate_grain: fail
+  expected_rows: { min: 1 }
+
+columns:
+  order_number: { type: integer, nullable: false, min: 1 }
+  code:         { type: string,  nullable: false, pattern: "^[0-9A-HJ-NP-Z]{3,7}$" }
+  valid_flag:   { type: string,  nullable: false, accepted_values: ["0", "1"] }

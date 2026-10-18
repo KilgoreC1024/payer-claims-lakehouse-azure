@@ -1,0 +1,26 @@
+# Data contract: CMS ICD-10-CM order file (fixed width), one row per code, one file per fiscal year.
+#
+# Layout (CMS "Code Descriptions in Tabular Order"): order number in columns 1-5, code in 7-13 (no dot),
+# a flag in column 15 (1 = valid for HIPAA-covered transactions, i.e. billable; 0 = header, e.g. a
+# category that has subcodes), then the short and long descriptions. Only the first three fields are read.
+#
+# Reference data is all-or-nothing: no row error budget, and any problem blocks the fiscal year.
+
+contract_version: 1
+source: ref_icd10cm
+owner: data-platform
+grain: [code]
+
+format:
+  layout: cms_order_file
+
+policy:
+  unknown_columns: fail
+  row_error_budget: 0
+  duplicate_grain: fail
+  expected_rows: { min: 1 }
+
+columns:
+  order_number: { type: integer, nullable: false, min: 1 }
+  code:         { type: string,  nullable: false, pattern: "^[A-Z][0-9][0-9A-Z]{1,5}$" }
+  valid_flag:   { type: string,  nullable: false, accepted_values: ["0", "1"] }

@@ -1,0 +1,78 @@
+# Data contract: CMS synthetic Medicare inpatient claims (RIF layout), one row per claim line.
+#
+# Enforced at the landing -> bronze boundary by `ingest.contracts`, once per yearly arrival. Only the
+# columns the platform consumes are contracted; the other ~150 columns are carried into bronze untouched
+# and reported as drift if they appear or disappear between arrivals.
+#
+# Severity model (same as the sibling healthcare-cost-utilization-platform, ADR 0004 there):
+#   - Structural problems (missing columns, duplicate headers, parse errors, too few rows) BLOCK the arrival.
+#   - Row-level value problems are tolerated up to `row_error_budget`; those rows are quarantined in silver.
+#     Above budget the problem is systemic and the arrival is blocked.
+#
+# What the contract does NOT check: whether diagnosis and procedure codes exist in the ICD-10 code sets.
+# That is a content question answered in silver against the code set of each claim's discharge fiscal
+# year, and the source is known to fail it systematically (docs/adr/0001).
+
+contract_version: 1
+source: cms_inpatient
+owner: data-platform
+grain: [CLM_ID, CLM_LINE_NUM]
+
+format:
+  delimiter: "|"
+  date_format: "%d-%b-%Y"      # 25-Mar-2015
+  # Whitespace-only fields are empty: CMS writes most empty fields as a single space.
+
+policy:
+  unknown_columns: warn
+  row_error_budget: 0.005        # 0.5% of rows may fail value rules (quarantined downstream)
+  # A repeated (CLM_ID, CLM_LINE_NUM) inside one arrival is reported, not blocking: exact repeats are
+  # collapsed in silver and conflicting repeats are quarantined there, with both rows kept in bronze.
+  duplicate_grain: warn
+  expected_rows: { min: 1 }
+
+columns:
+  # --- keys ---
+  BENE_ID:                    { type: string,  nullable: false, pattern: "^-?[0-9]{1,20}$" }
+  CLM_ID:                     { type: string,  nullable: false, pattern: "^-?[0-9]{1,20}$" }
+  CLM_LINE_NUM:               { type: integer, nullable: false, min: 1, max: 999 }
+  # --- claim type: 60-64 are inpatient record types; V = Part A institutional record ---
+  NCH_CLM_TYPE_CD:            { type: string,  nullable: false, accepted_values: ["60", "61", "62", "63", "64"] }
+  NCH_NEAR_LINE_REC_IDENT_CD: { type: string,  nullable: false, accepted_values: ["V"] }
+  CLM_FREQ_CD:                { type: string }
+  # --- dates ---
+  CLM_FROM_DT:                { type: date,    nullable: false }
+  CLM_THRU_DT:                { type: date,    nullable: false }
+  NCH_WKLY_PROC_DT:           { type: date,    nullable: false }
+  CLM_ADMSN_DT:               { type: date }
+  NCH_BENE_DSCHRG_DT:         { type: date }
+  # --- provider ---
+  PRVDR_NUM:                  { type: string,  pattern: "^[0-9A-Z]{6,10}$" }
+  PRVDR_STATE_CD:             { type: string,  pattern: "^[0-9A-Z]{2}$" }
+  ORG_NPI_NUM:                { type: string,  pattern: "^[0-9]{10}$" }
+  AT_PHYSN_NPI:               { type: string,  pattern: "^[0-9]{10}$" }
+  # --- admission and discharge ---
+  CLM_IP_ADMSN_TYPE_CD:       { type: string,  accepted_values: ["1", "2", "3", "4", "5", "9"] }
+  CLM_SRC_IP_ADMSN_CD:        { type: string }
+  PTNT_DSCHRG_STUS_CD:        { type: string,  pattern: "^[0-9]{1,2}$" }
+  CLM_DRG_CD:                 { type: string,  pattern: "^[0-9]{3}$" }
+  # --- amounts (payments may be negative on real adjustment claims, so no lower bound) ---
+  CLM_PMT_AMT:                { type: decimal }
+  CLM_TOT_CHRG_AMT:           { type: decimal, min: 0 }
+  NCH_PRMRY_PYR_CLM_PD_AMT:   { type: decimal }
+  NCH_BENE_IP_DDCTBL_AMT:     { type: decimal, min: 0 }
+  NCH_BENE_PTA_COINSRNC_LBLTY_AM: { type: decimal, min: 0 }
+  CLM_UTLZTN_DAY_CNT:         { type: integer, min: 0, max: 999 }
+  # --- diagnoses: presence is contracted, code-set validity is checked in silver ---
+  PRNCPAL_DGNS_CD:            { type: string,  nullable: false }
+  ADMTG_DGNS_CD:              { type: string }
+  # --- revenue center line ---
+  REV_CNTR:                   { type: string,  nullable: false, pattern: "^[0-9]{4}$" }
+  HCPCS_CD:                   { type: string }
+
+# Repeating groups, expanded by the loader: ICD_DGNS_CD1..25, CLM_POA_IND_SW1..25, ICD_PRCDR_CD1..25, ...
+column_groups:
+  - { prefix: ICD_DGNS_CD,      from: 1, to: 25, spec: { type: string } }
+  - { prefix: CLM_POA_IND_SW,   from: 1, to: 25, spec: { type: string, accepted_values: ["Y", "N", "U", "W", "1"] } }
+  - { prefix: ICD_PRCDR_CD,     from: 1, to: 25, spec: { type: string } }
+  - { prefix: PRCDR_DT,         from: 1, to: 25, spec: { type: date } }

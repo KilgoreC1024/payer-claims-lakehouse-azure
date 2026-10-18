@@ -1,0 +1,55 @@
+# Data contract: CMS synthetic Medicare Beneficiary Summary File (MBSF Base A/B/C/D, CCW long names),
+# one row per beneficiary per reference year. Each yearly file is one arrival.
+#
+# The monthly indicator groups are what make exact member-months possible (docs/adr/0001):
+#   MDCR_ENTLMT_BUYIN_IND_01..12  Medicare entitlement and state buy-in for the month
+#                                 0 none, 1 Part A, 2 Part B, 3 Parts A and B, A/B/C = same with buy-in
+#   HMO_IND_01..12                Medicare Advantage indicator (blank in this synthetic release)
+#   PTC_CNTRCT_ID_01..12          Part C contract for the month (populated in this release)
+#   PTD_CNTRCT_ID_01..12          Part D contract for the month
+#   DUAL_STUS_CD_01..12           Medicare-Medicaid dual status (NA = not dual)
+#
+# Blank monthly entitlement is allowed: the 2025 file only covers January-March.
+
+contract_version: 1
+source: cms_beneficiary
+owner: data-platform
+grain: [BENE_ID]
+
+format:
+  delimiter: "|"
+  date_format: "%d-%b-%Y"
+  # Whitespace-only fields are empty: CMS writes most empty fields as a single space.
+
+policy:
+  unknown_columns: warn
+  row_error_budget: 0.005
+  duplicate_grain: fail          # a member listed twice in one year's file makes member-months ambiguous
+  expected_rows: { min: 1 }
+
+columns:
+  BENE_ID:                    { type: string,  nullable: false, pattern: "^-?[0-9]{1,20}$" }
+  BENE_ENROLLMT_REF_YR:       { type: integer, nullable: false, min: 1999, max: 2100 }
+  BENE_BIRTH_DT:              { type: date,    nullable: false }
+  BENE_DEATH_DT:              { type: date }
+  SEX_IDENT_CD:               { type: string,  accepted_values: ["0", "1", "2"] }
+  BENE_RACE_CD:               { type: string,  accepted_values: ["0", "1", "2", "3", "4", "5", "6"] }
+  STATE_CODE:                 { type: string,  pattern: "^[0-9A-Z]{2}$" }
+  AGE_AT_END_REF_YR:          { type: integer, min: 0, max: 130 }
+  ENTLMT_RSN_ORIG:            { type: string,  accepted_values: ["0", "1", "2", "3"] }
+  ENTLMT_RSN_CURR:            { type: string,  accepted_values: ["0", "1", "2", "3"] }
+  ESRD_IND:                   { type: string,  accepted_values: ["0", "Y"] }
+  BENE_HI_CVRAGE_TOT_MONS:    { type: integer, min: 0, max: 12 }
+  BENE_SMI_CVRAGE_TOT_MONS:   { type: integer, min: 0, max: 12 }
+  BENE_STATE_BUYIN_TOT_MONS:  { type: integer, min: 0, max: 12 }
+  BENE_HMO_CVRAGE_TOT_MONS:   { type: integer, min: 0, max: 12 }
+  PTD_PLAN_CVRG_MONS:         { type: integer, min: 0, max: 12 }
+  DUAL_ELGBL_MONS:            { type: integer, min: 0, max: 12 }
+
+column_groups:
+  - { prefix: MDCR_ENTLMT_BUYIN_IND_, from: 1, to: 12, pad: 2, spec: { type: string, accepted_values: ["0", "1", "2", "3", "A", "B", "C"] } }
+  - { prefix: HMO_IND_,               from: 1, to: 12, pad: 2, spec: { type: string, accepted_values: ["0", "1", "2", "4", "A", "B", "C"] } }
+  - { prefix: PTC_CNTRCT_ID_,         from: 1, to: 12, pad: 2, spec: { type: string, pattern: "^[0-9A-Z]{1,5}$" } }
+  - { prefix: PTD_CNTRCT_ID_,         from: 1, to: 12, pad: 2, spec: { type: string, pattern: "^[0-9A-Z]{1,5}$" } }
+  # An unknown dual status does not make the member less enrolled: flag it, keep the member-month.
+  - { prefix: DUAL_STUS_CD_,          from: 1, to: 12, pad: 2, spec: { type: string, on_violation: flag, accepted_values: ["NA", "00", "01", "02", "03", "04", "05", "06", "08", "09", "10", "99"] } }
