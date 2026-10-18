@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "payer-claims-lakehouse"
+version = "0.1.0"
+description = "Member-level payer claims lakehouse on CMS synthetic Medicare data: contract-gated bronze ingest and dbt silver models on DuckDB."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Christian Kilgore" }]
+requires-python = ">=3.10"
+dependencies = [
+    "duckdb>=1.5,<2",
+    "pyyaml>=6",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+# dbt runs as a subprocess, so it can live in its own environment; for local work install it alongside.
+transform = ["dbt-duckdb>=1.11,<1.12"]
+dev = ["dbt-duckdb>=1.11,<1.12", "pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+pcl = "ingest.cli:main"
+
+[tool.setuptools]
+packages = ["ingest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "e2e: runs the full pipeline (dbt included) against the committed fixture",
+    "live: downloads from data.cms.gov (deselected by default)",
+]
+addopts = "-m 'not live'"
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = ["E501"]
