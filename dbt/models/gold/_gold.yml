@@ -1,0 +1,68 @@
+version: 2
+
+models:
+  - name: gold_inpatient_stays
+    description: >
+      One row per inpatient stay (silver claim), counted in its admission month and matched to the rate
+      denominator (in_claims_window, in_ffs_denominator). The common stay source for every gold mart.
+    columns:
+      - name: clm_id
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('silver_inpatient_claims')
+                field: clm_id
+      - name: bene_id
+        data_tests: [not_null]
+      - name: admission_date
+        data_tests: [not_null]
+      - name: discharge_date
+        data_tests: [not_null]
+      - name: incurred_month
+        data_tests: [not_null]
+      - name: inpatient_days
+        data_tests:
+          - value_between:
+              arguments:
+                min_value: 1
+
+  - name: gold_inpatient_member_months
+    description: >
+      Member-month fact: one row per member-month that is in the claims window and FFS-eligible (the rate
+      denominator), with the inpatient admits, days, and paid amount of the stays admitted in that month.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [bene_id, month_start]
+    columns:
+      - name: bene_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('silver_members')
+                field: bene_id
+      - name: month_start
+        data_tests:
+          - not_null
+          - value_between:
+              arguments:
+                min_value: "date '{{ var(\"claims_window_start\") }}'"
+                max_value: "date '{{ var(\"claims_window_end\") }}'"
+      - name: inpatient_admits
+        data_tests:
+          - not_null
+          - value_between:
+              arguments:
+                min_value: 0
+      - name: inpatient_days
+        data_tests:
+          - not_null
+          - value_between:
+              arguments:
+                min_value: 0
+      - name: inpatient_paid_amount
+        description: Medicare paid amount (CLM_PMT_AMT). No lower bound, because real adjustments can be negative.
+        data_tests: [not_null]

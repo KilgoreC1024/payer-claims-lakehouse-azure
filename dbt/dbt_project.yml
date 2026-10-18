@@ -45,6 +45,9 @@ models:
     silver:
       +schema: silver
       +materialized: table
+    gold:
+      +schema: gold
+      +materialized: table
 
 tests:
   payer_claims:
