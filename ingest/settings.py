@@ -53,7 +53,7 @@ class Paths:
 
     @property
     def fixture(self) -> Path:
-        return self.project_root / "tests" / "fixtures" / "cms_synthetic"
+        return self.project_root / "tests" / "fixtures" / "raw"
 
     # --- data (written by the pipeline) ---
     @property
