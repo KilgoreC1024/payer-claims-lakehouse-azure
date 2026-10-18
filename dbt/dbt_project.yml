@@ -29,6 +29,10 @@ vars:
   # Set to true to reproduce the CCW convention on real data.
   part_c_excludes_from_ffs: false
 
+  # Share of principal diagnoses that should be billable ICD-10-CM codes for their fiscal year.
+  # Below it, a warning (not a failure) is raised: code problems are measured, not quarantined.
+  principal_dx_valid_target: 0.95
+
   # Quarantine error budget, mirroring the contracts: the larger of a rate and a small-batch floor.
   quarantine_error_rate: 0.005
   quarantine_error_floor: 3

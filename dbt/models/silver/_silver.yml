@@ -67,3 +67,62 @@ models:
     columns:
       - name: dq_errors
         data_tests: [not_null]
+
+  - name: silver_inpatient_diagnoses
+    description: >
+      Every diagnosis position on every silver claim, with its ICD-10-CM status for the claim's discharge
+      fiscal year (macros/icd10.sql). Code problems are measured here, not quarantined.
+    data_tests:
+      - unique_combination:
+          columns: [clm_id, dx_role, dx_sequence]
+    columns:
+      - name: clm_id
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('silver_inpatient_claims')
+              field: clm_id
+      - name: dx_role
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [admitting, principal, other, external_cause]
+      - name: code_status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [valid, header_not_billable, truncated, not_valid_in_fiscal_year, invalid_format, not_in_code_set, code_set_not_loaded]
+
+  - name: silver_inpatient_procedures
+    description: >
+      Every ICD procedure on every silver claim, with its ICD-10-PCS status for the claim's discharge
+      fiscal year, including ICD-10-CM codes found in procedure fields.
+    data_tests:
+      - unique_combination:
+          columns: [clm_id, px_sequence]
+    columns:
+      - name: clm_id
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('silver_inpatient_claims')
+              field: clm_id
+      - name: code_status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [valid, header_not_billable, truncated, not_valid_in_fiscal_year, diagnosis_code_in_procedure_field, invalid_format, not_in_code_set, code_set_not_loaded]
+
+  - name: silver_dq_code_conformance
+    description: Code-set conformance by field, role, status, and fiscal year.
+    data_tests:
+      - unique_combination:
+          columns: [code_field, role, status, fiscal_year]
+
+  - name: ref_icd10_codes
+    description: ICD-10-CM and ICD-10-PCS codes by fiscal year from the CMS order files (code and flag only).
+    data_tests:
+      - unique_combination:
+          columns: [code_system, fiscal_year, code]
