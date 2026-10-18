@@ -1,7 +1,8 @@
 # Methodology
 
 How raw CMS files become trusted silver tables, and every rule and approximation along the way.
-Decisions with real trade-offs are recorded as ADRs in [`adr/`](adr/).
+Decisions with real trade-offs are recorded as ADRs in [`adr/`](adr/). The gold marts built on silver
+(PMPM, admits and days per 1,000, 30-day readmissions) are defined in [`marts.md`](marts.md).
 
 ## 1. Arrivals: loading one year at a time
 
@@ -190,4 +191,5 @@ missing or invalid birth date; invalid death date or death before birth; an enti
 | Fetch | Download plan, checksum manifest, no re-download, truncated downloads rejected (offline, fake HTTP) |
 | Landing and bronze | Replay is lossless and idempotent; zips yield only the order file; loads are ordered, lineage-stamped, idempotent, versioned on re-delivery, blocked on contract failure, and refuse tampered files |
 | dbt (every build) | Keys unique and not null; relationships (lines -> claims, diagnoses/procedures -> claims, member-months -> members); accepted values; ranges; bronze rows accounted for; quarantine within budget; Part A months reconcile; warnings for quarantine, code conformance, Part B/D counts, and claims without Part A eligibility |
-| End to end | Fixture run; arrivals over time; corrected re-delivery; exact and conflicting duplicates; contract rejection stops the run before dbt; quarantine over budget fails the build; partial-year enrollment and death |
+| dbt gold (every build) | Keys and relationships; each mart recomputed from silver (member-months, admits, days, and every in-window dollar, year by year); rate formulas; readmissions recomputed as the first stay 1-30 days after discharge, and every stay given exactly one index decision; warning for overlapping stays |
+| End to end | Fixture run; gold marts on the fixture; arrivals over time; corrected re-delivery; exact and conflicting duplicates; contract rejection stops the run before dbt; quarantine over budget fails the build; partial-year enrollment and death; injected in-hospital death, transfer, discharge against advice, and late discharge in the readmission mart |

@@ -5,8 +5,9 @@ claims arrive by processing date, and both pass data contracts before they reach
 built on the CMS synthetic Medicare claims, runs locally on DuckDB and dbt, and is laid out so the
 storage maps onto Azure Data Lake Storage and the transformations onto Spark in later milestones.
 
-**Milestone 1 (this repository today):** inpatient claims and eligibility, from raw files to typed,
-deduplicated, validated silver tables, with exact member-months. No cloud resources and no cost.
+**Milestones 1 and 2 (this repository today):** inpatient claims and eligibility, from raw files to
+typed, deduplicated, validated silver tables with exact member-months, and gold marts for inpatient
+PMPM, admits and days per 1,000, and 30-day readmissions. No cloud resources and no cost.
 
 ## Scope and data limits
 
@@ -14,7 +15,7 @@ deduplicated, validated silver tables, with exact member-months. No cloud resour
 warns they have "very limited inferential research value" and should not be used to draw conclusions
 about Medicare beneficiaries. Nothing in this repository is a finding about health or health care.
 Counts quoted here describe the **source files**, so they are engineering observations, and the
-PMPM, utilization, and readmission marts planned for milestone 2 are engineering demonstrations.
+PMPM, utilization, and readmission marts are engineering demonstrations.
 
 Known properties of the source that shape the design (details in [docs/methodology.md](docs/methodology.md)):
 
@@ -61,10 +62,16 @@ flowchart LR
         S3[code conformance]
         Q[quarantine]
     end
+    subgraph gold["gold (dbt on DuckDB)"]
+        G1[member-month fact]
+        G2[PMPM, admits and<br/>days per 1,000]
+        G3[30-day readmissions]
+    end
     raw -- "pcl replay" --> landing
     landing -- "pcl load:<br/>contract gate" --> bronze
     landing -. rejected .-> R[load log +<br/>contract report]
     bronze -- "pcl transform" --> silver
+    silver --> gold
 ```
 
 1. **Replay into arrivals.** Enrollment arrives one file per year; the single inpatient file is cut
@@ -77,6 +84,8 @@ flowchart LR
 4. **Silver in dbt.** The newest version of each arrival is typed, deduplicated, validated against
    the ICD-10 code set of each claim's fiscal year, and turned into member-months. Rows with
    structural errors go to quarantine with a pointer back to the landed file and line.
+5. **Gold marts in dbt.** Rates divide claims by member-months restricted to the claims window and the
+   fee-for-service population, and every mart reconciles back to silver in a dbt test.
 
 The contract, error-budget, and quarantine pattern is reused from the sibling
 [healthcare-cost-utilization-platform](https://github.com/KilgoreC1024/healthcare-cost-utilization-platform)
@@ -99,6 +108,22 @@ Code problems are measured, not quarantined, because they are systemic in this s
 ([ADR 0003](docs/adr/0003-code-conformance-measured-not-quarantined.md)). Member-months come from the
 monthly flags and reconcile exactly to CMS's annual Part A counts
 ([ADR 0004](docs/adr/0004-member-months-from-monthly-flags.md)).
+
+## Gold marts
+
+| Table | Grain | What it holds |
+|---|---|---|
+| `gold_inpatient_stays` | stay | Admission month, paid amount, days, and whether the stay is in the rate denominator |
+| `gold_inpatient_member_months` | member x month | Member-month fact: denominator months with that month's inpatient admits, days, and paid amount |
+| `gold_inpatient_pmpm_by_year` | year | Inpatient PMPM, and the stays and dollars outside the denominator |
+| `gold_inpatient_utilization_by_year` | year | Admits and days per 1,000 member-years, average length of stay |
+| `gold_readmission_30d_stays` | stay | Index-stay decision, exclusion, and first readmission within 30 days |
+| `gold_readmission_30d_by_year` | year | 30-day all-cause readmission rate with a count per exclusion |
+
+Denominators are member-months in the claims window that are FFS-eligible, and a stay counts in its
+admission month. Readmissions follow the shape of CMS's hospital-wide measure (index stays, 30-day
+follow-up, transfer and death exclusions) without risk adjustment. Definitions, exclusions, and
+reconciliations are in [docs/marts.md](docs/marts.md).
 
 ## How to run
 
@@ -150,10 +175,10 @@ Other commands: `pcl replay`, `pcl load [--through 2018]`, `pcl transform`, `pcl
 config/sources.yml      where every raw file comes from
 contracts/              data contracts (inpatient, beneficiary, ICD-10-CM, ICD-10-PCS)
 ingest/                 pcl CLI: fetch, replay (landing), contract engine, bronze loader, dbt runner
-dbt/                    staging and silver models, macros, audit tests
+dbt/                    staging, silver, and gold models, macros, audit and reconciliation tests
 tests/                  pytest suite and the committed fixture (tests/fixtures/README.md)
 scripts/make_fixture.py how the fixture was cut from the full files
-docs/                   methodology and architecture decision records
+docs/                   methodology, mart definitions, architecture decision records
 infra/                  placeholder: Azure Terraform (later milestone)
 orchestration/          placeholder: scheduler (later milestone)
 benchmarks/             placeholder: DuckDB vs Spark (later milestone)
@@ -162,7 +187,7 @@ benchmarks/             placeholder: DuckDB vs Spark (later milestone)
 ## Roadmap
 
 1. **Milestone 1 (done):** contract-gated bronze, inpatient silver, ICD-10 validation, member-months.
-2. **Milestone 2:** marts for PMPM, inpatient admits and days per 1,000, and 30-day all-cause
+2. **Milestone 2 (done):** marts for PMPM, inpatient admits and days per 1,000, and 30-day all-cause
    readmissions, with denominators restricted to the claims window.
 3. **Milestone 3:** the same silver logic on Spark, benchmarked against DuckDB on a scaled-up
    Synthea population.
