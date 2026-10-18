@@ -1,0 +1,81 @@
+name: Publish dashboard
+
+# Builds the full pipeline from the public CMS files and publishes the dashboard and dbt docs to GitHub
+# Pages. The CMS synthetic release is fixed, so this runs on pushes to main rather than on a schedule.
+# A contract or dbt test failure fails the job, and the last good dashboard stays online.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      PCL_DATA_DIR: ${{ github.workspace }}/pcl-data
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e ".[transform]"
+
+      # The raw files never change for a given source list, so download them once.
+      - name: Restore raw downloads
+        uses: actions/cache@v6
+        with:
+          path: pcl-data/raw
+          key: pcl-raw-${{ hashFiles('config/sources.yml') }}
+
+      - name: Fetch the CMS files and ICD-10 code sets
+        run: pcl fetch
+
+      - name: Run the pipeline (replay, contract-gated load, dbt build)
+        run: pcl run --profile full
+
+      - name: Pipeline status
+        if: always()
+        run: |
+          {
+            echo "## Load log"
+            echo '```'
+            pcl status
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate dbt docs (lineage and data dictionary)
+        env:
+          PCL_DUCKDB_PATH: ${{ env.PCL_DATA_DIR }}/warehouse/lakehouse.duckdb
+          PCL_BRONZE_DIR: ${{ env.PCL_DATA_DIR }}/bronze
+        run: |
+          dbt docs generate --static --project-dir dbt --profiles-dir dbt --target-path "$RUNNER_TEMP/dbt-docs"
+          mkdir -p "$PCL_DATA_DIR/site/dbt-docs"
+          cp "$RUNNER_TEMP/dbt-docs/static_index.html" "$PCL_DATA_DIR/site/dbt-docs/index.html"
+
+      - name: Build the dashboard
+        run: pcl dashboard
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: pcl-data/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

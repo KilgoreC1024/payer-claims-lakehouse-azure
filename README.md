@@ -1,5 +1,14 @@
 # Payer Claims Lakehouse
 
+[![CI](https://github.com/KilgoreC1024/payer-claims-lakehouse-azure/actions/workflows/ci.yml/badge.svg)](https://github.com/KilgoreC1024/payer-claims-lakehouse-azure/actions/workflows/ci.yml)
+[![Publish dashboard](https://github.com/KilgoreC1024/payer-claims-lakehouse-azure/actions/workflows/pages.yml/badge.svg)](https://github.com/KilgoreC1024/payer-claims-lakehouse-azure/actions/workflows/pages.yml)
+
+**[Live dashboard](https://kilgorec1024.github.io/payer-claims-lakehouse-azure/)** ·
+**[dbt docs and lineage](https://kilgorec1024.github.io/payer-claims-lakehouse-azure/dbt-docs/)** ·
+**[Mart definitions](docs/marts.md)** ·
+**[Methodology](docs/methodology.md)** ·
+**[Design decisions](docs/adr/)**
+
 A member-level claims lakehouse in the shape a health plan runs: eligibility arrives month by month,
 claims arrive by processing date, and both pass data contracts before they reach trusted tables. It is
 built on the CMS synthetic Medicare claims, runs locally on DuckDB and dbt, and is laid out so the
@@ -8,6 +17,13 @@ storage maps onto Azure Data Lake Storage and the transformations onto Spark in 
 **Milestones 1 and 2 (this repository today):** inpatient claims and eligibility, from raw files to
 typed, deduplicated, validated silver tables with exact member-months, and gold marts for inpatient
 PMPM, admits and days per 1,000, and 30-day readmissions. No cloud resources and no cost.
+
+On every push to `main`, GitHub Actions downloads the public CMS files, runs the whole pipeline with
+the same CLI used locally, and publishes the dashboard and dbt docs to GitHub Pages
+([`pages.yml`](.github/workflows/pages.yml)). A contract or test failure stops the publish, and the
+last good dashboard stays online.
+
+![Dashboard: inpatient PMPM, admits and days per 1,000, and readmission rate by year](docs/dashboard.png)
 
 ## Scope and data limits
 
@@ -165,6 +181,9 @@ pcl fetch
 pcl run --profile full
 ```
 
+Then `pcl dashboard` writes the static dashboard to `<data-dir>/site/index.html` from the warehouse;
+open it in a browser.
+
 Other commands: `pcl replay`, `pcl load [--through 2018]`, `pcl transform`, `pcl status`.
 `--through YEAR` loads member and claim arrivals only up to that year, so running it before a plain
 `pcl run` replays the passage of time. The DuckDB warehouse is at `<data-dir>/warehouse/lakehouse.duckdb`.
@@ -174,11 +193,13 @@ Other commands: `pcl replay`, `pcl load [--through 2018]`, `pcl transform`, `pcl
 ```text
 config/sources.yml      where every raw file comes from
 contracts/              data contracts (inpatient, beneficiary, ICD-10-CM, ICD-10-PCS)
-ingest/                 pcl CLI: fetch, replay (landing), contract engine, bronze loader, dbt runner
+ingest/                 pcl CLI: fetch, replay (landing), contract engine, bronze loader, dbt runner,
+                        static dashboard (dashboard.py, templates/)
 dbt/                    staging, silver, and gold models, macros, audit and reconciliation tests
 tests/                  pytest suite and the committed fixture (tests/fixtures/README.md)
 scripts/make_fixture.py how the fixture was cut from the full files
 docs/                   methodology, mart definitions, architecture decision records
+.github/workflows/      CI (lint, tests on Ubuntu and Windows) and the Pages publish
 infra/                  placeholder: Azure Terraform (later milestone)
 orchestration/          placeholder: scheduler (later milestone)
 benchmarks/             placeholder: DuckDB vs Spark (later milestone)
