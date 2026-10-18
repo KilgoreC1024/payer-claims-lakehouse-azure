@@ -109,3 +109,53 @@ models:
           - value_between:
               arguments:
                 min_value: 0
+
+  - name: gold_readmission_30d_stays
+    description: >
+      30-day all-cause readmissions, one row per inpatient stay: whether it is an index stay, the one
+      exclusion that applies if not, and its first readmission 1 to 30 days after discharge.
+    columns:
+      - name: clm_id
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('gold_inpatient_stays')
+                field: clm_id
+      - name: index_exclusion_reason
+        data_tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - discharged_before_claims_window
+                  - less_than_30_days_follow_up
+                  - died_in_hospital
+                  - left_against_medical_advice
+                  - transferred_to_acute_care
+                  - continued_same_day
+                  - not_ffs_enrolled_through_follow_up
+      - name: readmission_clm_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('gold_inpatient_stays')
+                field: clm_id
+      - name: days_to_readmission
+        data_tests:
+          - value_between:
+              arguments:
+                min_value: 1
+                max_value: 30
+
+  - name: gold_readmission_30d_by_year
+    description: 30-day all-cause readmission rate by calendar year of the index discharge, with exclusion counts.
+    columns:
+      - name: year
+        data_tests: [unique, not_null]
+      - name: readmission_rate
+        data_tests:
+          - value_between:
+              arguments:
+                min_value: 0
+                max_value: 1

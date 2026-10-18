@@ -7,8 +7,8 @@
       average_length_of_stay  = inpatient_days / inpatient_admits
 
     All four come from gold_inpatient_member_months, so numerators and denominators cover the same
-    members and months. Each stay is one admission, with all of its days in the admission month, and
-    stays chained on the same day are not merged.
+    members and months. Each stay is one admission, with all of its days in the admission month; stays
+    chained on the same day are not merged here (gold_readmission_30d_stays does that for readmissions).
 -#}
 
 with by_year as (
