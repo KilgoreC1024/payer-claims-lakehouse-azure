@@ -1,0 +1,47 @@
+name: payer_claims
+version: "0.1.0"
+config-version: 2
+profile: payer_claims
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+clean-targets: ["target", "logs"]
+
+vars:
+  cms_date_format: "%d-%b-%Y"
+
+  # ICD-10 replaced ICD-9 for discharges on or after this date. The synthetic generator writes ICD-10
+  # codes on 2015 claims before it; those claims are validated against the FY2016 code set and flagged.
+  icd10_effective_date: "2015-10-01"
+  first_icd10_fiscal_year: 2016
+
+  # Months for which the published claims can be complete: the earliest claim ends 2015-03-07 and the
+  # latest 2023-03-02 (inspected 2026-10-18), so March 2023 is a partial month. Member-months outside
+  # this window are kept but flagged, so later PMPM and per-1,000 marts do not divide claims that
+  # cannot exist by members who do.
+  claims_window_start: "2015-03-01"
+  claims_window_end: "2023-02-28"
+
+  # CCW convention excludes Medicare Advantage (Part C) months from fee-for-service denominators,
+  # because MA members' care is not billed as FFS claims. Synthea exports FFS claims for Part C
+  # enrollees anyway (user guide 3.3.3), so for this source excluding them would overstate PMPM.
+  # Set to true to reproduce the CCW convention on real data.
+  part_c_excludes_from_ffs: false
+
+  # Quarantine error budget, mirroring the contracts: the larger of a rate and a small-batch floor.
+  quarantine_error_rate: 0.005
+  quarantine_error_floor: 3
+
+models:
+  payer_claims:
+    staging:
+      +schema: staging
+      +materialized: view
+    silver:
+      +schema: silver
+      +materialized: table
+
+tests:
+  payer_claims:
+    +severity: error

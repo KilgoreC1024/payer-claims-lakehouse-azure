@@ -185,9 +185,16 @@ def _write_parquet(
 
 
 def load_all(
-    paths: Paths, run_id: str, sources: list[str] | None = None, arrival: str | None = None
+    paths: Paths,
+    run_id: str,
+    sources: list[str] | None = None,
+    arrival: str | None = None,
+    through: str | None = None,
 ) -> list[LoadResult]:
     """Load every landed arrival in order: reference data, then members, then claims, oldest year first.
+
+    `through` stops member and claim arrivals after that year (reference data always loads in full), so
+    `pcl run --through 2018` followed by `pcl run` replays the passage of time.
 
     A contract failure stops the run (ContractViolation): later arrivals of a source must not load on top
     of a gap, and nothing downstream should run on a partially loaded lakehouse.
@@ -196,6 +203,9 @@ def load_all(
     for name in sources or LOAD_ORDER:
         source = SOURCES[name]
         for found in list_arrivals(paths.landing, name):
-            if arrival is None or found == arrival:
-                results.append(load_arrival(paths, source, found, run_id))
+            if arrival is not None and found != arrival:
+                continue
+            if through is not None and name.startswith("cms_") and not found <= through:
+                continue
+            results.append(load_arrival(paths, source, found, run_id))
     return results

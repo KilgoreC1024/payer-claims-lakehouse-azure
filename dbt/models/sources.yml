@@ -1,0 +1,34 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: >
+      Immutable Parquet copies of every accepted arrival, written by `ingest.bronze`. Every source column
+      is VARCHAR exactly as published. Lineage columns: _source, _arrival, _source_file, _source_sha256,
+      _source_line (line in the landed file; header is line 1), _loaded_at, _contract_status. Bronze keeps
+      every version of an arrival; staging reads the newest version of each.
+    tables:
+      - name: cms_inpatient
+        description: >
+          CMS synthetic Medicare inpatient claims (RIF layout), one row per claim line, replayed as one
+          arrival per CMS processing year (NCH_WKLY_PROC_DT).
+        meta:
+          external_location: >-
+            read_parquet('{{ env_var("PCL_BRONZE_DIR", "../data/bronze") }}/cms_inpatient/*/*/data.parquet', union_by_name = true, hive_partitioning = false)
+      - name: cms_beneficiary
+        description: >
+          CMS synthetic Master Beneficiary Summary File (CCW long names), one row per member per
+          reference year; one arrival per yearly file.
+        meta:
+          external_location: >-
+            read_parquet('{{ env_var("PCL_BRONZE_DIR", "../data/bronze") }}/cms_beneficiary/*/*/data.parquet', union_by_name = true, hive_partitioning = false)
+      - name: ref_icd10cm
+        description: CMS ICD-10-CM order file (code, billable flag), one arrival per fiscal year.
+        meta:
+          external_location: >-
+            read_parquet('{{ env_var("PCL_BRONZE_DIR", "../data/bronze") }}/ref_icd10cm/*/*/data.parquet', union_by_name = true, hive_partitioning = false)
+      - name: ref_icd10pcs
+        description: CMS ICD-10-PCS order file (code, valid flag), one arrival per fiscal year.
+        meta:
+          external_location: >-
+            read_parquet('{{ env_var("PCL_BRONZE_DIR", "../data/bronze") }}/ref_icd10pcs/*/*/data.parquet', union_by_name = true, hive_partitioning = false)

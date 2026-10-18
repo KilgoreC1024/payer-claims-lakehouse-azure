@@ -1,0 +1,69 @@
+version: 2
+
+models:
+  - name: silver_inpatient_claim_lines
+    description: >
+      Inpatient claim lines (revenue center lines) that survived deduplication and structural checks.
+      HCPCS codes are classified by format only; no CPT descriptions are stored (AMA copyright).
+    data_tests:
+      - unique_combination:
+          columns: [clm_id, clm_line_num]
+    columns:
+      - name: clm_id
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('silver_inpatient_claims')
+              field: clm_id
+      - name: revenue_center_code
+        data_tests: [not_null]
+      - name: hcpcs_format
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [missing, cpt_category_i, cpt_category_ii, cpt_category_iii, cpt_pla, hcpcs_level_ii, modifier_in_code_field, invalid_format]
+
+  - name: silver_inpatient_claims
+    description: One row per inpatient claim (stay), typed, deduplicated, and structurally valid.
+    columns:
+      - name: clm_id
+        data_tests: [unique, not_null]
+      - name: bene_id
+        data_tests: [not_null]
+      - name: thru_date
+        data_tests: [not_null]
+      - name: discharge_fiscal_year
+        data_tests:
+          - value_between:
+              arguments:
+                min_value: 2015
+                max_value: 2030
+      - name: length_of_stay_days
+        data_tests:
+          - value_between:
+              arguments:
+                min_value: 0
+                max_value: 3650
+      - name: inpatient_days
+        data_tests:
+          - value_between:
+              arguments:
+                min_value: 1
+      - name: total_charge_amount
+        data_tests:
+          - value_between:
+              arguments:
+                min_value: 0
+      - name: line_count
+        data_tests:
+          - value_between:
+              arguments:
+                min_value: 1
+
+  - name: silver_quarantine
+    description: >
+      Rows that failed a structural rule, with the reasons and a pointer back to the landed file and line.
+      Code-set problems are not quarantined; they are measured in silver_dq_code_conformance.
+    columns:
+      - name: dq_errors
+        data_tests: [not_null]

@@ -2,7 +2,9 @@
 
 pcl fetch                         download the CMS files and ICD-10 code sets into <data-dir>/raw
 pcl replay --profile fixture      cut raw files into yearly arrivals under <data-dir>/landing
-pcl load                          contract-check and load every pending arrival into bronze
+pcl load [--through 2019]         contract-check and load pending arrivals into bronze, oldest first
+pcl transform                     build the silver models with dbt and run their tests
+pcl run --profile fixture         replay + load + transform, end to end
 pcl status                        show the load log
 """
 
@@ -19,6 +21,7 @@ from ingest.contracts import ContractViolation
 from ingest.landing import replay
 from ingest.settings import Paths
 from ingest.sources import LOAD_ORDER, arrival_sort_key
+from ingest.transform import TransformError, build
 
 
 def new_run_id() -> str:
@@ -57,7 +60,11 @@ def cmd_load(paths: Paths, args: argparse.Namespace) -> int:
     run_id = new_run_id()
     try:
         results = load_all(
-            paths, run_id, sources=[args.source] if args.source else None, arrival=args.arrival
+            paths,
+            run_id,
+            sources=[args.source] if args.source else None,
+            arrival=args.arrival,
+            through=args.through,
         )
     except ContractViolation as exc:
         print(f"REJECTED  {exc}", file=sys.stderr)
@@ -65,6 +72,28 @@ def cmd_load(paths: Paths, args: argparse.Namespace) -> int:
     for r in results:
         rows = f"{r.rows:>8,} rows" if r.rows is not None else " " * 13
         print(f"{r.status:8} {r.source:16} arrival={r.arrival:8} {rows}  contract={r.contract_status or '-'}")
+    return 0
+
+
+def cmd_transform(paths: Paths, args: argparse.Namespace) -> int:
+    try:
+        result = build(paths)
+    except TransformError as exc:
+        print(f"FAILED  {exc}", file=sys.stderr)
+        return 3
+    print(result.summary())
+    for warning in result.warnings:
+        print(f"  warn: {warning['unique_id'].split('.')[-1]} ({warning['failures']} rows)")
+    print(f"warehouse: {paths.duckdb_path}")
+    return 0
+
+
+def cmd_run(paths: Paths, args: argparse.Namespace) -> int:
+    for step in (cmd_replay, cmd_load, cmd_transform):
+        print(f"== {step.__name__.removeprefix('cmd_')}")
+        code = step(paths, args)
+        if code:
+            return code
     return 0
 
 
@@ -108,7 +137,16 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("load", help="contract-check and load landed arrivals into bronze")
     p.add_argument("--source", choices=LOAD_ORDER)
     p.add_argument("--arrival", help="load only this arrival (e.g. 2019)")
+    p.add_argument("--through", help="load member and claim arrivals up to this year (simulates time)")
     p.set_defaults(func=cmd_load)
+
+    p = sub.add_parser("transform", help="build silver with dbt and run its tests")
+    p.set_defaults(func=cmd_transform)
+
+    p = sub.add_parser("run", help="replay, load, and transform end to end")
+    p.add_argument("--profile", choices=["fixture", "full"], default="full")
+    p.add_argument("--through", help="load member and claim arrivals up to this year (simulates time)")
+    p.set_defaults(func=cmd_run, source=None, arrival=None)
 
     p = sub.add_parser("status", help="show what has been loaded")
     p.set_defaults(func=cmd_status)

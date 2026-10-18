@@ -1,0 +1,8 @@
+payer_claims:
+  target: local
+  outputs:
+    local:
+      type: duckdb
+      # `pcl transform` sets this to <data-dir>/warehouse/lakehouse.duckdb.
+      path: "{{ env_var('PCL_DUCKDB_PATH', '../data/warehouse/lakehouse.duckdb') }}"
+      threads: 4
