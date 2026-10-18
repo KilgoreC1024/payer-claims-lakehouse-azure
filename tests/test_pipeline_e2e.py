@@ -46,6 +46,14 @@ def data_dir(tmp_path: Path) -> Path:
     return tmp_path
 
 
+@pytest.fixture(scope="module")
+def run_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """One untouched fixture run, shared by the tests that only read its warehouse."""
+    data_dir = tmp_path_factory.mktemp("fixture_run")
+    assert run(data_dir, "run", "--profile", "fixture") == 0
+    return data_dir
+
+
 # ---- helpers to edit the raw inpatient file like a broken feed would ---------------------------------
 
 
@@ -71,46 +79,120 @@ def single_line_claims(header: list[str], rows: list[list[str]], processed_year:
 # ---- the happy path -----------------------------------------------------------------------------------
 
 
-def test_fixture_runs_end_to_end(tmp_path: Path):
-    assert run(tmp_path, "run", "--profile", "fixture") == 0
-
-    assert scalar(tmp_path, "select count(*) from silver.silver_inpatient_claims") == 39
-    assert scalar(tmp_path, "select count(*) from silver.silver_inpatient_claim_lines") == 66
-    assert scalar(tmp_path, "select count(*) from silver.silver_members") == 31
-    assert scalar(tmp_path, "select count(*) from silver.silver_quarantine") == 0
+def test_fixture_runs_end_to_end(run_dir: Path):
+    assert scalar(run_dir, "select count(*) from silver.silver_inpatient_claims") == 39
+    assert scalar(run_dir, "select count(*) from silver.silver_inpatient_claim_lines") == 66
+    assert scalar(run_dir, "select count(*) from silver.silver_members") == 31
+    assert scalar(run_dir, "select count(*) from silver.silver_quarantine") == 0
 
     # A December stay processed in January arrives with the next year's batch.
     [(thru, arrival)] = query(
-        tmp_path,
+        run_dir,
         "select thru_date, _arrival from silver.silver_inpatient_claims where year(thru_date) <> cast(_arrival as int)",
     )
     assert (thru.year, arrival) == (2017, "2018")
 
     # Every code-set defect the fixture was chosen for is detected, and none of them quarantines a claim.
-    dx = {r[0] for r in query(tmp_path, "select distinct code_status from silver.silver_inpatient_diagnoses")}
-    px = {
-        r[0] for r in query(tmp_path, "select distinct code_status from silver.silver_inpatient_procedures")
-    }
+    dx = {r[0] for r in query(run_dir, "select distinct code_status from silver.silver_inpatient_diagnoses")}
+    px = {r[0] for r in query(run_dir, "select distinct code_status from silver.silver_inpatient_procedures")}
     hcpcs = {
-        r[0] for r in query(tmp_path, "select distinct hcpcs_format from silver.silver_inpatient_claim_lines")
+        r[0] for r in query(run_dir, "select distinct hcpcs_format from silver.silver_inpatient_claim_lines")
     }
     assert {"valid", "truncated", "header_not_billable", "not_valid_in_fiscal_year"} <= dx
     assert {"valid", "diagnosis_code_in_procedure_field", "header_not_billable"} <= px
     assert {"cpt_category_i", "hcpcs_level_ii", "modifier_in_code_field", "invalid_format"} <= hcpcs
     assert (
         scalar(
-            tmp_path, "select count(*) from silver.silver_inpatient_claims where coded_before_icd10_effective"
+            run_dir, "select count(*) from silver.silver_inpatient_claims where coded_before_icd10_effective"
         )
         == 2
     )
 
     # Member-months: exact from the monthly flags; the invalid dual status is nulled, not dropped.
-    assert scalar(tmp_path, "select count(*) from silver.silver_member_months") == 2949
+    assert scalar(run_dir, "select count(*) from silver.silver_member_months") == 2949
     assert query(
-        tmp_path,
+        run_dir,
         "select dual_status_code from silver.silver_member_months "
         "where bene_id = '-10000010254824' and year = 2022 group by all",
     ) == [(None,)]
+
+
+def test_gold_rate_marts_reconcile_to_silver(run_dir: Path):
+    # Denominator: member-months in the claims window that are FFS-eligible (2,949 in silver overall).
+    assert scalar(run_dir, "select count(*) from gold.gold_inpatient_member_months") == 2116
+    assert query(
+        run_dir,
+        "select sum(inpatient_admits), sum(inpatient_days), sum(inpatient_paid_amount) "
+        "from gold.gold_inpatient_member_months",
+    ) == [(38, 44, Decimal("270768.34"))]
+
+    # The 39th stay belongs to a Part A-only member (not FFS-eligible): reported beside PMPM, not dropped,
+    # so every in-window dollar in silver is in the PMPM mart.
+    assert query(
+        run_dir,
+        "select year, stays_outside_denominator, paid_amount_outside_denominator "
+        "from gold.gold_inpatient_pmpm_by_year where stays_outside_denominator > 0",
+    ) == [(2022, 1, Decimal("555.75"))]
+    silver_paid = scalar(run_dir, "select sum(payment_amount) from silver.silver_inpatient_claims")
+    assert silver_paid == Decimal("271324.09")
+    assert (
+        scalar(
+            run_dir,
+            "select sum(inpatient_paid_amount + paid_amount_outside_denominator) "
+            "from gold.gold_inpatient_pmpm_by_year",
+        )
+        == silver_paid
+    )
+
+    # The window's partial first and last years (March-December 2015, January-February 2023).
+    assert query(
+        run_dir,
+        "select year, member_months, inpatient_paid_amount, inpatient_pmpm "
+        "from gold.gold_inpatient_pmpm_by_year where year in (2015, 2023) order by year",
+    ) == [
+        (2015, 150, Decimal("11802.78"), Decimal("78.69")),
+        (2023, 58, Decimal("3295.11"), Decimal("56.81")),
+    ]
+    [(admits, days, admits_per_1000, days_per_1000)] = query(
+        run_dir,
+        "select inpatient_admits, inpatient_days, admits_per_1000, days_per_1000 "
+        "from gold.gold_inpatient_utilization_by_year where year = 2021",
+    )
+    assert (admits, days) == (6, 9)
+    assert (admits_per_1000, days_per_1000) == (
+        pytest.approx(6 / 27 * 1000, abs=0.005),
+        pytest.approx(9 / 27 * 1000, abs=0.005),
+    )
+
+
+def test_gold_readmissions(run_dir: Path):
+    # Two members are readmitted 21 days after discharge.
+    assert query(
+        run_dir,
+        "select bene_id, clm_id, readmission_clm_id, days_to_readmission "
+        "from gold.gold_readmission_30d_stays where is_readmitted_within_30_days order by bene_id",
+    ) == [
+        ("-10000010258423", "-10000930201155", "-10000930201157", 21),
+        ("-10000010276577", "-10000931025490", "-10000931025494", 21),
+    ]
+    # Admitted again on the day of discharge: one episode, not a readmission. The first stay is not an
+    # index stay; the second, which ends the episode, is.
+    assert query(
+        run_dir,
+        "select clm_id, index_exclusion_reason, is_readmitted_within_30_days "
+        "from gold.gold_readmission_30d_stays where bene_id = '-10000010287101' and discharge_year = 2021 "
+        "order by admission_date",
+    ) == [("-10000931443740", "continued_same_day", None), ("-10000931443741", None, False)]
+    # The Part A-only member's stay: without Part B the member is outside the FFS population.
+    assert query(
+        run_dir,
+        "select clm_id from gold.gold_readmission_30d_stays "
+        "where index_exclusion_reason = 'not_ffs_enrolled_through_follow_up'",
+    ) == [("-10000930043486",)]
+    assert query(
+        run_dir,
+        "select sum(stays), sum(index_stays), sum(readmissions) from gold.gold_readmission_30d_by_year",
+    ) == [(39, 37, 2)]
 
 
 def test_arrivals_replay_the_passage_of_time(data_dir: Path):
@@ -250,3 +332,42 @@ def test_partial_year_enrollment_and_death_shape_member_months(data_dir: Path):
         "and year in (2019, 2025) group by year order by year",
     )
     assert months == [(2019, 9, 4), (2025, 2, 1)]
+
+
+def test_readmission_exclusions_for_death_transfer_and_late_discharge(data_dir: Path):
+    """The published discharge status is always "1" (home), so these are injected: a transfer, a death,
+    a discharge against medical advice, and a stay with less than 30 days of claims left after it."""
+    transfer, died, against_advice, late = (
+        "-10000930201155",  # discharged 2020-07-23 and readmitted 21 days later
+        "-10000930124603",
+        "-10000930689895",
+        "-10000930380120",  # discharged 2023-01-12, moved to 2023-02-10
+    )
+    header, rows = inpatient_lines(data_dir)
+    clm, status = header.index("CLM_ID"), header.index("PTNT_DSCHRG_STUS_CD")
+    for r in rows:
+        if r[clm] in (transfer, died, against_advice):
+            # CMS writes single-digit codes without the leading zero, as in the published "1".
+            r[status] = {transfer: "2", died: "20", against_advice: "7"}[r[clm]]
+        if r[clm] == late:
+            r[:] = [{"12-Jan-2023": "10-Feb-2023", "13-Jan-2023": "17-Feb-2023"}.get(v, v) for v in r]
+    write_inpatient(data_dir, header, rows)
+
+    assert run(data_dir, "run", "--profile", "full") == 0
+    reasons = dict(
+        query(
+            data_dir,
+            "select clm_id, index_exclusion_reason from gold.gold_readmission_30d_stays "
+            f"where clm_id in ('{transfer}', '{died}', '{against_advice}', '{late}')",
+        )
+    )
+    assert reasons == {
+        transfer: "transferred_to_acute_care",
+        died: "died_in_hospital",
+        against_advice: "left_against_medical_advice",
+        late: "less_than_30_days_follow_up",
+    }
+    # The transferred stay is no longer an index stay, so the stay 21 days later is not its readmission.
+    assert query(
+        data_dir, "select sum(index_stays), sum(readmissions) from gold.gold_readmission_30d_by_year"
+    ) == [(37 - 4, 2 - 1)]
