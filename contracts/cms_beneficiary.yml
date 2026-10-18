@@ -23,7 +23,8 @@ format:
 
 policy:
   unknown_columns: warn
-  row_error_budget: 0.005
+  row_error_budget: 0.005        # 0.5% of rows may fail value rules (quarantined or flagged downstream)
+  row_error_floor: 3            # ...but a small arrival may always carry up to 3 such rows
   duplicate_grain: fail          # a member listed twice in one year's file makes member-months ambiguous
   expected_rows: { min: 1 }
 

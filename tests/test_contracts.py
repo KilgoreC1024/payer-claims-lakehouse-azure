@@ -130,3 +130,16 @@ def test_order_file_layout(tmp_path: Path):
 
     path.write_text("00001 A00     0 \n00002 A00     1 \n", encoding="ascii", newline="")
     assert validate(path, contract("ref_icd10cm"), "2023").status == FAIL
+
+
+def test_small_arrivals_get_an_absolute_error_floor(tmp_path: Path):
+    # 1 bad row in 30 is 3.3%, far over the 0.5% rate, but within the 3-row floor for small batches.
+    rows = claim_lines(30)
+    rows[0]["CLM_THRU_DT"] = "31-Feb-2020"
+    report = validate(inpatient_file(tmp_path / "a.csv", rows), contract("cms_inpatient"), "2020")
+    assert check(report, "values.row_error_budget").status == WARN
+
+    for row in rows[:4]:
+        row["CLM_THRU_DT"] = "31-Feb-2020"
+    report = validate(inpatient_file(tmp_path / "b.csv", rows), contract("cms_inpatient"), "2020")
+    assert check(report, "values.row_error_budget").status == FAIL

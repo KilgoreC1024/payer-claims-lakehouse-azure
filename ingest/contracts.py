@@ -331,15 +331,15 @@ def validate(
                     violations.append(
                         {"column": column, "rule": rule, "rows": n, "action": action, "samples": samples}
                     )
-            budget = float(policy.get("row_error_budget", 0))
+            allowed, budget, floor = error_allowance(policy, row_count)
             rate = bad_rows / row_count if row_count else 0.0
-            status = PASS if bad_rows == 0 else (WARN if rate <= budget else FAIL)
+            status = PASS if bad_rows == 0 else (WARN if bad_rows <= allowed else FAIL)
             checks.append(
                 Check(
                     "values.row_error_budget",
                     status,
                     observed={"rows": bad_rows, "rate": round(rate, 6)},
-                    expected=f"<= {budget:.2%} of rows",
+                    expected=f"<= {allowed:g} rows (the larger of {budget:.2%} of rows and {floor} rows)",
                     message=(
                         ""
                         if status == PASS
@@ -352,6 +352,18 @@ def validate(
     finally:
         con.close()
     return report(row_count)
+
+
+def error_allowance(policy: dict[str, Any], row_count: int) -> tuple[float, float, int]:
+    """How many rows may break value rules: the larger of a rate and an absolute floor.
+
+    A pure rate is too strict for small arrivals (one bad row in a 30-row file is 3%), and a pure count
+    is too loose for large ones. `row_error_floor` is the small-batch tolerance; `row_error_budget`
+    governs everything else.
+    """
+    budget = float(policy.get("row_error_budget", 0))
+    floor = int(policy.get("row_error_floor", 0))
+    return max(float(floor), budget * row_count), budget, floor
 
 
 def drift(previous_header: list[str] | None, current_header: list[str]) -> dict[str, list[str]]:
