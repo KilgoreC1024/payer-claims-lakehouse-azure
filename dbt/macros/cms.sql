@@ -29,7 +29,7 @@
 
 {#- A list of the trimmed values of numbered columns: PREFIX1..PREFIXn, or PREFIX01..PREFIX12 with pad=2. -#}
 {% macro cms_list(prefix, n, pad=0) -%}
-    [{% for i in range(1, n + 1) %}{{ cms_value(prefix ~ ('%0' ~ pad ~ 'd') % i if pad else prefix ~ i) }}{{ ', ' if not loop.last }}{% endfor %}]
+    [{% for i in range(1, n + 1) %}{{ cms_value(prefix ~ (('%0' ~ pad ~ 'd') | format(i)) if pad else prefix ~ i) }}{{ ', ' if not loop.last }}{% endfor %}]
 {%- endmacro %}
 
 {#- Federal fiscal year: October 1 starts the next fiscal year (2015-10-01 is FY2016). ICD-10 code sets

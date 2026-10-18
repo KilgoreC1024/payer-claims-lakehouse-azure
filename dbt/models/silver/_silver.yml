@@ -7,14 +7,16 @@ models:
       HCPCS codes are classified by format only; no CPT descriptions are stored (AMA copyright).
     data_tests:
       - unique_combination:
-          columns: [clm_id, clm_line_num]
+          arguments:
+            columns: [clm_id, clm_line_num]
     columns:
       - name: clm_id
         data_tests:
           - not_null
           - relationships:
-              to: ref('silver_inpatient_claims')
-              field: clm_id
+              arguments:
+                to: ref('silver_inpatient_claims')
+                field: clm_id
       - name: revenue_center_code
         data_tests: [not_null]
       - name: hcpcs_format
@@ -74,14 +76,16 @@ models:
       fiscal year (macros/icd10.sql). Code problems are measured here, not quarantined.
     data_tests:
       - unique_combination:
-          columns: [clm_id, dx_role, dx_sequence]
+          arguments:
+            columns: [clm_id, dx_role, dx_sequence]
     columns:
       - name: clm_id
         data_tests:
           - not_null
           - relationships:
-              to: ref('silver_inpatient_claims')
-              field: clm_id
+              arguments:
+                to: ref('silver_inpatient_claims')
+                field: clm_id
       - name: dx_role
         data_tests:
           - accepted_values:
@@ -100,14 +104,16 @@ models:
       fiscal year, including ICD-10-CM codes found in procedure fields.
     data_tests:
       - unique_combination:
-          columns: [clm_id, px_sequence]
+          arguments:
+            columns: [clm_id, px_sequence]
     columns:
       - name: clm_id
         data_tests:
           - not_null
           - relationships:
-              to: ref('silver_inpatient_claims')
-              field: clm_id
+              arguments:
+                to: ref('silver_inpatient_claims')
+                field: clm_id
       - name: code_status
         data_tests:
           - not_null
@@ -119,10 +125,59 @@ models:
     description: Code-set conformance by field, role, status, and fiscal year.
     data_tests:
       - unique_combination:
-          columns: [code_field, role, status, fiscal_year]
+          arguments:
+            columns: [code_field, role, status, fiscal_year]
 
   - name: ref_icd10_codes
     description: ICD-10-CM and ICD-10-PCS codes by fiscal year from the CMS order files (code and flag only).
     data_tests:
       - unique_combination:
-          columns: [code_system, fiscal_year, code]
+          arguments:
+            columns: [code_system, fiscal_year, code]
+
+  - name: silver_member_months
+    description: >
+      One row per member per month with Medicare entitlement, built from the monthly indicators (exact,
+      not approximated). Denominator flags: is_ffs_eligible, in_claims_window.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [bene_id, month_start]
+    columns:
+      - name: bene_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('silver_members')
+                field: bene_id
+      - name: month_start
+        data_tests: [not_null]
+      - name: entitlement_code
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["1", "2", "3", "A", "B", "C"]
+      - name: age_at_month_start
+        data_tests:
+          - value_between:
+              arguments:
+                min_value: 0
+                max_value: 120
+
+  - name: silver_members
+    description: One row per member with attributes from the most recent valid reference year.
+    columns:
+      - name: bene_id
+        data_tests: [unique, not_null]
+      - name: birth_date
+        data_tests: [not_null]
+      - name: distinct_birth_dates
+        description: Should be 1; more means the member's birth date changed between yearly files.
+        data_tests:
+          - value_between:
+              arguments:
+                min_value: 1
+                max_value: 1
+              config:
+                severity: warn

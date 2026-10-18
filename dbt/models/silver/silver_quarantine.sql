@@ -13,3 +13,18 @@ select
     current_timestamp                                   as quarantined_at
 from {{ ref('stg_cms__inpatient_lines') }}
 where len(dq_errors) > 0
+
+union all
+
+select
+    'cms_beneficiary',
+    _arrival,
+    _source_file,
+    _source_line,
+    _source_sha256,
+    concat_ws('|', bene_id, ref_year),
+    bene_id,
+    dq_errors,
+    current_timestamp
+from {{ ref('stg_cms__beneficiary') }}
+where len(dq_errors) > 0
